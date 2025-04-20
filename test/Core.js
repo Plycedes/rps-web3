@@ -9,46 +9,84 @@ describe("NFTMarketplace", function () {
         nftMarketplace = await ethers.deployContract("Core");
     });
 
-    it("should mint an NFT", async function () {
-        await expect(nftMarketplace.connect(user1).mintNFT("ipfs://test-token-uri"))
-            .to.emit(nftMarketplace, "NFTMinted")
-            .withArgs(1, user1.address, "ipfs://test-token-uri");
+    describe("Listing NFTs", function () {
+        it("should mint an NFT", async function () {
+            await expect(nftMarketplace.connect(user1).mintNFT("ipfs://test-token-uri"))
+                .to.emit(nftMarketplace, "NFTMinted")
+                .withArgs(1, user1.address, "ipfs://test-token-uri");
+        });
+
+        it("should list an NFT for sale", async function () {
+            await expect(nftMarketplace.connect(user1).mintNFT("ipfs://uri"))
+                .to.emit(nftMarketplace, "NFTMinted")
+                .withArgs(1, user1.address, "ipfs://uri");
+
+            await expect(nftMarketplace.connect(user1).listNFT(1, ethers.parseEther("1")))
+                .to.emit(nftMarketplace, "NFTListed")
+                .withArgs(1, ethers.parseEther("1"), user1.address);
+
+            const listing = await nftMarketplace.listings(1);
+            expect(listing.price.toString()).to.equal(ethers.parseEther("1").toString());
+            expect(listing.seller).to.equal(user1.address);
+        });
+
+        it("should allow a user to buy a listed NFT", async function () {
+            await nftMarketplace.connect(user1).mintNFT("ipfs://uri");
+            await nftMarketplace.connect(user1).listNFT(1, ethers.parseEther("1"));
+
+            await expect(nftMarketplace.connect(user2).buyNFT(1, { value: ethers.parseEther("1") }))
+                .to.emit(nftMarketplace, "NFTSold")
+                .withArgs(1, ethers.parseEther("1"), user2.address);
+
+            expect(await nftMarketplace.ownerOf(1)).to.equal(user2.address);
+
+            const proceeds = await nftMarketplace.proceeds(user1.address);
+            expect(proceeds.toString()).to.equal(ethers.parseEther("1").toString());
+        });
+
+        it("should revert if non-owner tries to list", async function () {
+            await nftMarketplace.connect(user1).mintNFT("ipfs://uri");
+
+            await expect(
+                nftMarketplace.connect(user2).listNFT(1, ethers.parseEther("1"))
+            ).to.be.revertedWith("You don't own this NFT");
+        });
     });
 
-    it("should list an NFT for sale", async function () {
-        await expect(nftMarketplace.connect(user1).mintNFT("ipfs://uri"))
-            .to.emit(nftMarketplace, "NFTMinted")
-            .withArgs(1, user1.address, "ipfs://uri");
+    describe("Unlisting NFTs", function () {
+        let tokenId;
 
-        await expect(nftMarketplace.connect(user1).listNFT(1, ethers.parseEther("1")))
-            .to.emit(nftMarketplace, "NFTListed")
-            .withArgs(1, ethers.parseEther("1"), user1.address);
+        beforeEach(async function () {
+            const mintTx = await nftMarketplace.connect(user1).mintNFT("ipfs://token-uri");
+            const receipt = await mintTx.wait();
+            tokenId = receipt.logs[0].args.tokenId;
 
-        const listing = await nftMarketplace.listings(1);
-        expect(listing.price.toString()).to.equal(ethers.parseEther("1").toString());
-        expect(listing.seller).to.equal(user1.address);
-    });
+            await nftMarketplace.connect(user1).listNFT(tokenId, ethers.parseEther("1"));
+        });
 
-    it("should allow a user to buy a listed NFT", async function () {
-        await nftMarketplace.connect(user1).mintNFT("ipfs://uri");
-        await nftMarketplace.connect(user1).listNFT(1, ethers.parseEther("1"));
+        it("should allow the seller to unlist their NFT", async function () {
+            await expect(nftMarketplace.connect(user1).unlistNFT(tokenId))
+                .to.emit(nftMarketplace, "NFTUnlisted")
+                .withArgs(tokenId, user1.address);
 
-        await expect(nftMarketplace.connect(user2).buyNFT(1, { value: ethers.parseEther("1") }))
-            .to.emit(nftMarketplace, "NFTSold")
-            .withArgs(1, ethers.parseEther("1"), user2.address);
+            const listing = await nftMarketplace.listings(tokenId);
+            expect(listing.price).to.equal(0);
+            expect(listing.seller).to.equal("0x0000000000000000000000000000000000000000");
+        });
 
-        expect(await nftMarketplace.ownerOf(1)).to.equal(user2.address);
+        it("should revert if someone other than the seller tries to unlist", async function () {
+            await expect(nftMarketplace.connect(user2).unlistNFT(tokenId))
+                .to.be.revertedWithCustomError(nftMarketplace, "NotTokenSeller")
+                .withArgs(tokenId, user2.address);
+        });
 
-        const proceeds = await nftMarketplace.proceeds(user1.address);
-        expect(proceeds.toString()).to.equal(ethers.parseEther("1").toString());
-    });
+        it("should revert if NFT is not listed", async function () {
+            await nftMarketplace.connect(user1).unlistNFT(tokenId);
 
-    it("should revert if non-owner tries to list", async function () {
-        await nftMarketplace.connect(user1).mintNFT("ipfs://uri");
-
-        await expect(
-            nftMarketplace.connect(user2).listNFT(1, ethers.parseEther("1"))
-        ).to.be.revertedWith("You don't own this NFT");
+            await expect(nftMarketplace.connect(user1).unlistNFT(tokenId))
+                .to.be.revertedWithCustomError(nftMarketplace, "TokenNotListed")
+                .withArgs(tokenId);
+        });
     });
 
     describe("Transactional Functions", function () {

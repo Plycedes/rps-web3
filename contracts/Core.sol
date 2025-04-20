@@ -6,6 +6,8 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 error NotTokenOwner(uint256 tokenId, address caller);
+error NotTokenSeller(uint256 tokenId, address caller);
+error TokenNotListed(uint256 tokenId);
 
 contract Core is ERC721URIStorage, Ownable, ReentrancyGuard {
     uint256 private _tokenIds;
@@ -25,6 +27,7 @@ contract Core is ERC721URIStorage, Ownable, ReentrancyGuard {
     event NFTListed(uint256 indexed tokenId, uint256 price, address indexed seller);
     event NFTSold(uint256 indexed tokenId, uint256 price, address indexed buyer);
     event ProceedsWithdrawn(address indexed seller, uint256 amount);
+    event NFTUnlisted(uint256 indexed tokenId, address indexed seller);
 
     constructor() ERC721("MyNFTCollection", "MNFT") Ownable(msg.sender) {}
     
@@ -38,6 +41,22 @@ contract Core is ERC721URIStorage, Ownable, ReentrancyGuard {
         emit NFTMinted(newItemId, msg.sender, tokenURI);
         return newItemId;
     }
+
+    function unlistNFT(uint256 tokenId) external {
+        Listing memory listing = listings[tokenId];
+
+        if (listing.price == 0) {
+            revert TokenNotListed(tokenId);
+        }
+
+        if (listing.seller != msg.sender) {
+            revert NotTokenSeller(tokenId, msg.sender);
+        }
+
+        delete listings[tokenId];
+
+        emit NFTUnlisted(tokenId, msg.sender);
+    }
     
     function listNFT(uint256 tokenId, uint256 price) external {
         require(ownerOf(tokenId) == msg.sender, "You don't own this NFT");
@@ -46,7 +65,7 @@ contract Core is ERC721URIStorage, Ownable, ReentrancyGuard {
 
         listings[tokenId] = Listing(price, msg.sender);
         emit NFTListed(tokenId, price, msg.sender);
-    }
+    }    
     
     function buyNFT(uint256 tokenId) external payable nonReentrant {
         Listing memory listing = listings[tokenId];
