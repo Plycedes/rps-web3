@@ -85,4 +85,13 @@ contract Core is ERC721URIStorage, Ownable, ReentrancyGuard {
         }
         _transfer(msg.sender, winner, tokenId);
     }    
+
+    function getTokenURI(uint256 tokenId) external view returns (string memory) {
+        try this.ownerOf(tokenId) returns (address) {
+            return tokenURI(tokenId);
+        } catch {
+            revert("Token not found");
+        }
+    }
+
 }
